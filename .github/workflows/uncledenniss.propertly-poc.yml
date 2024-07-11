@@ -1,0 +1,67 @@
+name: Mylab-Project/uncledenniss.propertly-poc
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
+jobs:
+  build:
+    env:
+      LAB007_DOCKER_REGISTRY:
+      LAB007_DOCKER_USERNAME:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4.1.0
+    - run: mvn dependency:purge-local-repository
+    - name: Setup Java 16
+      uses: actions/setup-java@v4.0.0
+      with:
+        distribution: zulu
+        java-version: '16'
+    - name: Run maven
+      run: mvn --file pom.xml clean install package -X
+      env:
+        MAVEN_OPTS: "-Xmx3072m"
+    - run: mvn dependency:tree | grep 'maven-compiler-plugin'
+      working-directory: "${{ github.workspace }}"
+    # Unsupported authentication type for 'lab007'.
+    - uses: docker/login-action@v3.0.0
+      with:
+        registry: "${{ env.LAB007_DOCKER_REGISTRY }}"
+        username: "${{ env.LAB007_DOCKER_USERNAME }}"
+        password: "${{ secrets.LAB007_DOCKER_PASSWORD }}"
+    # Unsupported authentication type for 'lab007'.
+    - run: docker build . --file "Dockerfile" -t ${{ env.LAB007_DOCKER_REGISTRY }}/czarhubmylabazuredevops:${{ github.run_id }}
+    # Unsupported authentication type for 'lab007'.
+    - run: docker push ${{ env.LAB007_DOCKER_REGISTRY }}/czarhubmylabazuredevops:${{ github.run_id }}
+    # The following script preserves the globbing behavior of the CopyFiles task.
+    # Refer to this transformer's documentation for an alternative that will work in simple cases.
+    - uses: actions/github-script@v7.0.0
+      env:
+        TARGET_FOLDER: "${{ runner.temp }}"
+        CONTENTS: "**"
+      with:
+        github-token: "${{ secrets.GITHUB_TOKEN }}"
+        script: |-
+          const fs = require('fs').promises
+          const path = require('path')
+          const target = path.resolve(process.env.TARGET_FOLDER)
+          process.chdir(process.env.SOURCE_FOLDER || '.')
+          if (process.env.CLEAN_TARGET_FOLDER === 'true') await io.rmRF(target)
+          const flattenFolders = process.env.FLATTEN_FOLDERS === 'true'
+          const options = {force: process.env.OVERWRITE === 'true'}
+          const globber = await glob.create(process.env.CONTENTS || '**')
+          for await (const file of globber.globGenerator()) {
+            if ((await fs.lstat(file)).isDirectory()) continue
+            const filename = flattenFolders ? path.basename(file) : file.substring(process.cwd().length)
+            const dest = path.join(target, filename)
+            await io.mkdirP(path.dirname(dest))
+            await io.cp(file, dest, options)
+          }
+    - uses: actions/upload-artifact@v4.1.0
+      with:
+        name: drop
+        path: "${{ runner.temp }}"
